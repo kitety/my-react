@@ -1,4 +1,5 @@
 import $ from "jquery";
+import { Element } from "./element";
 class Unit {
   // 父类保存参数
   constructor(element) {
@@ -19,6 +20,7 @@ class ReactTextUnit extends Unit {
     return `<span data-reactid="${rootId}">${this.currentElement}</span>`;
   }
 }
+// React.createElement("div", null, "hello ", /*#__PURE__*/React.createElement("span", null, "3423432"));
 class ReactNativeUnit extends Unit {
   // 每个类重写这个方法
   getMarkUp(rootId) {
@@ -29,23 +31,37 @@ class ReactNativeUnit extends Unit {
     let { type, props } = this.currentElement;
     let tagStart = `<${type} data-reactid="${rootId}"`;
     let tagEnd = `</${type}>`;
-    let contentStr = "";
+    let childStr = "";
     for (const propsName in props) {
       // 绑定事件
       if (/on[A-Z]/.test(propsName)) {
         let eventType = propsName.slice(2).toLowerCase(); //click
         // 事件委托  目标元素还是一个字符串
-        // react 里面的事件 事件委托
+        // react 里面的事件 事件委托  namespace 方便取消事件
         $(document).on(
-          eventType,
+          `${eventType}.${rootId}`,
           `[data-reactid="${rootId}"]`,
           props[propsName]
         );
+      } else if (propsName === "style") {
+        let styleObj = props[propsName];
+        let styles = Object.entries(styleObj)
+          .map(([attr, value]) => {
+            attr = attr.replace(
+              /[A-Z]/g,
+              (group1) => `-${group1.toLowerCase()}`
+            );
+            return `${attr}:${value}`;
+          })
+          .join(";");
+        tagStart += ` style="${styles}" `;
+      } else if (propsName === "className") {
+        tagStart += ` class="${props[propsName]}" `;
       }
       // 循环递归 children
       else if (propsName === "children") {
         // 是个数组 返回['<span>你好</span>'，'<button>123</button>']
-        contentStr = props[propsName]
+        childStr = props[propsName]
           .map((child, index) => {
             // 递归 循环子节点
             let childInstance = createReactUnit(child);
@@ -59,11 +75,11 @@ class ReactNativeUnit extends Unit {
       }
     }
     // 返回拼接后的字符串
-    return tagStart + ">" + contentStr + tagEnd;
+    return tagStart + ">" + childStr + tagEnd;
   }
 }
 // 负责渲染react组件;
-class ReactCompositUnit extends Unit {
+class ReactCompositeUnit extends Unit {
   getMarkUp(rootId) {
     this._rootId = rootId;
     // new Component 调用render函数
@@ -99,14 +115,14 @@ function createReactUnit(element) {
   // 先对字符串处理
   if (typeof element === "string" || typeof element === "number") {
     return new ReactTextUnit(element);
-  } else if (typeof element === "object" && typeof element.type === "string") {
+  } else if (element instanceof Element && typeof element.type === "string") {
     // createElement创建的元素
     return new ReactNativeUnit(element);
   }
   // element.type function
-  else if (typeof element === "object" && typeof element.type === "function") {
+  else if (element instanceof Element && typeof element.type === "function") {
     // class对相应的情况
-    return new ReactCompositUnit(element);
+    return new ReactCompositeUnit(element);
   }
 }
 export default createReactUnit;

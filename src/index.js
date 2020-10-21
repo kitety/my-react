@@ -5,15 +5,31 @@ import React from "./react";
 function say() {
   alert(1);
 }
-class SubCounter {
+class SubCounter extends React.Component {
+  constructor(props) {
+    // 传给父类
+    super(props);
+    this.state = { number: 1 };
+  }
   componentWillMount() {
     console.log("child组件将挂载");
   }
   componentDidMount() {
     console.log("child组件已经挂载");
   }
+  handleClick = () => {
+    this.setState({ number: this.state.number + 1 });
+  };
   render() {
-    return 13213;
+    return (
+      <div
+        style={{ color: "red" }}
+        className="hello"
+        onClick={this.handleClick}
+      >
+        {this.props.name}: {this.state.number}
+      </div>
+    );
   }
 }
 
@@ -31,7 +47,7 @@ class Counter extends React.Component {
     console.log("parent组件已经挂载");
   }
   render() {
-    return React.createElement(SubCounter, { name: 111 });
+    return React.createElement(SubCounter, { name: "计数器" });
   }
 }
 let classEle = React.createElement(Counter, {
