@@ -1,11 +1,13 @@
 import $ from "jquery";
-import createReactUnit from './unit.js'
-import createElement from './element.js'
+import createReactUnit from "./unit.js";
+import createElement from "./element.js";
+import Component from "./component.js";
 
 let React = {
   render,
   createElement,
   nextRootIndex: 0,
+  Component,
 };
 // 给每个元素添加属性 方便能获取
 function render(element, container) {
@@ -16,6 +18,8 @@ function render(element, container) {
   // 包一层添加属性
   // let markup = `<span data-reactid="${React.nextRootIndex}">${element}</span>`;
   $(container).html(markup);
+  // 触发组件创建完成 这个时候触发componentDidMount 挂载完成
+  $(document).trigger("mounted"); // 所有组件ok
 }
 
 export default React;

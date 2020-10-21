@@ -1,3 +1,4 @@
+import $ from "jquery";
 class Unit {
   // 父类保存参数
   constructor(element) {
@@ -30,8 +31,19 @@ class ReactNativeUnit extends Unit {
     let tagEnd = `</${type}>`;
     let contentStr = "";
     for (const propsName in props) {
+      // 绑定事件
+      if (/on[A-Z]/.test(propsName)) {
+        let eventType = propsName.slice(2).toLowerCase(); //click
+        // 事件委托  目标元素还是一个字符串
+        // react 里面的事件 事件委托
+        $(document).on(
+          eventType,
+          `[data-reactid="${rootId}"]`,
+          props[propsName]
+        );
+      }
       // 循环递归 children
-      if (propsName === "children") {
+      else if (propsName === "children") {
         // 是个数组 返回['<span>你好</span>'，'<button>123</button>']
         contentStr = props[propsName]
           .map((child, index) => {
@@ -40,13 +52,41 @@ class ReactNativeUnit extends Unit {
             // 拿到一个字符串
             return childInstance.getMarkUp(`${rootId}.${index}`);
           })
-          .join('');
+          .join("");
       } else {
         // 拼接
         tagStart += `${propsName}="${props[propsName]}"`;
       }
     }
+    // 返回拼接后的字符串
     return tagStart + ">" + contentStr + tagEnd;
+  }
+}
+// 负责渲染react组件;
+class ReactCompositUnit extends Unit {
+  getMarkUp(rootId) {
+    this._rootId = rootId;
+    // new Component 调用render函数
+    let { type: Component, props } = this.currentElement;
+    // 实例化
+    let componentInstance = new Component(props);
+    // 先父亲后儿子
+    componentInstance.componentWillMount &&
+      componentInstance.componentWillMount();
+
+    // 执行实例的render函数
+    let reactComponentRenderer = componentInstance.render(); // number  div  ...
+    // 递归渲染组件 render后的返回结果
+    // 返回一个实例
+    let reactCompositUnitInstance = createReactUnit(reactComponentRenderer);
+    let markUp = reactCompositUnitInstance.getMarkUp(rootId);
+    // 先儿子后父亲
+    // 递归后绑定的事件 这样的话就是儿子的先挂载  子组件经过人的render之后就会绑定
+    $(document).on("mounted", () => {
+      componentInstance.componentDidMount &&
+        componentInstance.componentDidMount();
+    });
+    return markUp; // 实现把render方法返回的结果 作为字符串返回回去
   }
 }
 
@@ -62,6 +102,11 @@ function createReactUnit(element) {
   } else if (typeof element === "object" && typeof element.type === "string") {
     // createElement创建的元素
     return new ReactNativeUnit(element);
+  }
+  // element.type function
+  else if (typeof element === "object" && typeof element.type === "function") {
+    // class对相应的情况
+    return new ReactCompositUnit(element);
   }
 }
 export default createReactUnit;
