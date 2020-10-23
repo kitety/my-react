@@ -1,5 +1,8 @@
 import $ from "jquery";
 import { Element } from "./element";
+
+let diffQueue; // 差异队列
+let updateDepth = 0; // 更新级别 往下面一层 +1 出来一层-1
 class Unit {
   // 父类保存参数
   constructor(element) {
@@ -41,6 +44,7 @@ class ReactNativeUnit extends Unit {
     let tagStart = `<${type} data-reactid="${rootId}"`;
     let tagEnd = `</${type}>`;
     let childStr = "";
+    this._renderedChildrenUnits = []; // 已经渲染的儿子节点的单元unit dom diff
     for (const propsName in props) {
       // 绑定事件
       if (/on[A-Z]/.test(propsName)) {
@@ -74,6 +78,8 @@ class ReactNativeUnit extends Unit {
           .map((child, index) => {
             // 递归 循环子节点
             let childInstance = createReactUnit(child);
+            // 每个子元素的实例
+            this._renderedChildrenUnits.push(childInstance);
             // 拿到一个字符串
             return childInstance.getMarkUp(`${rootId}.${index}`);
           })
@@ -85,6 +91,127 @@ class ReactNativeUnit extends Unit {
     }
     // 返回拼接后的字符串
     return tagStart + ">" + childStr + tagEnd;
+  }
+  update(nextElement) {
+    // 新旧属性
+    let oldProps = this.currentElement.props;
+    let newProps = nextElement.props;
+    // 更新属性
+    this.updateDomProperties(oldProps, newProps);
+    this.updateDomChildren(nextElement.props.children);
+  }
+  updateDomProperties(oldProps, newProps) {
+    // 删掉老属性有 新属性无的属性
+    for (const propsName in oldProps) {
+      if (!newProps.hasOwnProperty(propsName)) {
+        // 删掉没有的属性
+        $(`[data-reactid="${this._rootId}"]`).removeAttr(propsName);
+      }
+      if (/^on[A-Z]/.test(propsName)) {
+        $(document).off(`${this._rootId}`);
+      }
+    }
+    // 避免多次绑定 就先把上面的事件全部去取消  因为 下面的操作会重新绑定
+    $(document).off(`.${this._rootId}`)
+    for (const propsName in newProps) {
+      // 先不处理 深度优先
+      if (propsName === "children") {
+        continue;
+      } else if (/on[A-Z]/.test(propsName)) {
+        let eventType = propsName.slice(2).toLowerCase(); //click
+        // 事件委托  目标元素还是一个字符串
+        // react 里面的事件 事件委托  namespace 方便取消事件
+        $(document).on(
+          `${eventType}.${this._rootId}`,
+          `[data-reactid="${this._rootId}"]`,
+          newProps[propsName]
+        );
+      } else if (propsName === "className") {
+        // $(`[data-reactid="${this._rootId}"]`)[0].className =newProps[propsName];
+        $(`[data-reactid="${this._rootId}"]`).attr(
+          "class",
+          newProps[propsName]
+        );
+      } else if (propsName === "style") {
+        let styleObj = newProps[propsName];
+        Object.entries(styleObj).map(([attr, value]) => {
+          attr = attr.replace(/[A-Z]/g, (group1) => `-${group1.toLowerCase()}`);
+          $(`[data-reactid="${this._rootId}"]`).css(attr, value);
+        });
+      } else {
+        $(`[data-reactid="${this._rootId}"]`).prop(
+          propsName,
+          newProps[propsName]
+        );
+      }
+    }
+  }
+  //  传入新的children ，和旧的对比，找出差异
+  updateDomChildren(newChildrenElement) {
+    // 队列和新的children
+    this.diff(diffQueue, newChildrenElement);
+  }
+  /**
+   *
+   * @param {*} diffQueue 队列
+   * @param {*} newChildrenElement  newChildrenElement
+   */
+  diff(diffQueue, newChildrenElement) {
+    // 每个节点生成unit
+    // _renderedChildrenUnits 已经渲染的儿子节点的单元unit
+    let oldChildrenUnitMap = this.getOldChildrenMap(
+      this._renderedChildrenUnits
+    );
+    /**
+     * 1.先找找老的有没有老的集合里面有没有能用的 有就复用  或者更新属性 没有的话就创建
+     */
+    let newChildren = this.getNewChildren(
+      oldChildrenUnitMap,
+      newChildrenElement
+    );
+    // let newChildrenUnitMap = this.getNewChildrenMap(
+    //   this._renderedChildrenUnits
+    // );
+  }
+  getNewChildren(oldChildrenUnitMap, newChildrenElement) {
+    let newChildren = [];
+    newChildrenElement.forEach((newElement, index) => {
+      // 一定要给可以 尽量不要他走内部的索引key
+      let newKey =
+        (newElement.currentElement &&
+          newElement.currentElement.props &&
+          newElement.currentElement.props.key) ||
+        index.toString();
+      let oldUnit = oldChildrenUnitMap[newKey]; //找到老的unit
+      let oldElement = oldUnit && oldUnit.currentElement; // 获取老元素
+      // dom diff
+      if (shouldDeepCompare(oldElement, newElement)) {
+        // 一样 可以复用
+        // 递归update
+        oldUnit.update(newElement);
+        // 更新之哦户是最新的 可以复用了
+        // 放入数组
+        newChildren.push(oldUnit);
+      } else {
+        // 不可复用就创建新的unit
+        let nextUnit = createReactUnit(newElement);
+        newChildren.push(nextUnit);
+      }
+    });
+    return newChildren;
+  }
+  // old children array
+  getOldChildrenMap(childrenUnits = []) {
+    let map = {};
+    for (let i = 0; i < childrenUnits.length; i++) {
+      // 取出key || index作为key
+      let key =
+        (childrenUnits[i].currentElement.props &&
+          childrenUnits[i].currentElement.props.key) ||
+        i.toString();
+      map[key] = childrenUnits[i];
+    }
+    return map;
   }
 }
 // 负责渲染react组件;
@@ -150,6 +277,7 @@ class ReactCompositeUnit extends Unit {
     if (shouldDeepCompare(preRenderElement, nextRenderElement)) {
       // update 传入新的element
       // 如果可以进行新比较 则把更新的工作交给上次渲染出来的那个element元素对应的unit来处理
+      // preRenderUnitInstance  render的实例
       preRenderUnitInstance.update(nextRenderElement);
       this._renderedUnitInstance.componentDidUpdate &&
         this._renderedUnitInstance.componentDidUpdate();

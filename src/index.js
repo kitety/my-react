@@ -16,14 +16,15 @@ class SubCounter extends React.Component {
   }
   componentDidMount() {
     console.log("child组件已经挂载");
-    setInterval(() => {
-      this.setState({ number: this.state.number + 1 });
-    }, 1000);
+    // setInterval(() => {
+    //   this.setState({ number: this.state.number + 1 });
+    // }, 1000);
   }
   componentDidUpdate() {
     console.log("componentDidUpdate");
   }
   handleClick = () => {
+    console.log("this.state.number", this.state.number);
     this.setState({ number: this.state.number + 1 });
   };
   shouldComponentUpdate() {
@@ -32,7 +33,17 @@ class SubCounter extends React.Component {
   render() {
     console.log("child render", this.state.number);
 
-    return this.state.number;
+    return (
+      <div
+        onClick={this.handleClick}
+        style={{
+          color: this.state.number % 2 === 0 ? "red" : "green",
+          fontSize: "80px",
+        }}
+      >
+        {this.state.number}
+      </div>
+    );
   }
 }
 

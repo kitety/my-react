@@ -3,7 +3,7 @@ class Component {
     this.props = props;
   }
   setState(partialState) {
-    console.log(this)
+    console.log('setState',this)
     /**
      * 参数1 新的元素
      * 参数2 新的状态
