@@ -19,7 +19,7 @@ function render(element, container) {
   // let markup = `<span data-reactid="${React.nextRootIndex}">${element}</span>`;
   $(container).html(markup);
   // 触发组件创建完成 这个时候触发componentDidMount 挂载完成
-  $(document).trigger("mounted"); // 所有组件ok
+  $(document).trigger("mounted"); // 所有组件挂载ok
 }
 
 export default React;

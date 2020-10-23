@@ -16,20 +16,23 @@ class SubCounter extends React.Component {
   }
   componentDidMount() {
     console.log("child组件已经挂载");
+    setInterval(() => {
+      this.setState({ number: this.state.number + 1 });
+    }, 1000);
+  }
+  componentDidUpdate() {
+    console.log("componentDidUpdate");
   }
   handleClick = () => {
     this.setState({ number: this.state.number + 1 });
   };
+  shouldComponentUpdate() {
+    return true;
+  }
   render() {
-    return (
-      <div
-        style={{ color: "red" }}
-        className="hello"
-        onClick={this.handleClick}
-      >
-        {this.props.name}: {this.state.number}
-      </div>
-    );
+    console.log("child render", this.state.number);
+
+    return this.state.number;
   }
 }
 
@@ -47,6 +50,7 @@ class Counter extends React.Component {
     console.log("parent组件已经挂载");
   }
   render() {
+    console.log("parent render");
     return React.createElement(SubCounter, { name: "计数器" });
   }
 }

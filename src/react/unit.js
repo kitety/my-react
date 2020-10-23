@@ -19,6 +19,15 @@ class ReactTextUnit extends Unit {
     // 返回当前元素的html
     return `<span data-reactid="${rootId}">${this.currentElement}</span>`;
   }
+  update(nextElement) {
+    // ？？
+    // const nextElementStr = `<span data-reactid="${this._rootId}">${nextElement}</span>`;
+    if (this.currentElement !== nextElement) {
+      this.currentElement = nextElement;
+      // 都是通过data-reactid属性来更新的
+      $(`[data-reactid="${this._rootId}"]`).html(nextElement);
+    }
+  }
 }
 // React.createElement("div", null, "hello ", /*#__PURE__*/React.createElement("span", null, "3423432"));
 class ReactNativeUnit extends Unit {
@@ -80,22 +89,33 @@ class ReactNativeUnit extends Unit {
 }
 // 负责渲染react组件;
 class ReactCompositeUnit extends Unit {
+  /*
+  _componentInstance 当前的组件实例
+  _renderedUnitInstance 当前组件render方法返回的react元素对应的unit currentElement指向react元素
+  */
   getMarkUp(rootId) {
     this._rootId = rootId;
     // new Component 调用render函数
     let { type: Component, props } = this.currentElement;
-    // 实例化
-    let componentInstance = new Component(props);
-    // 先父亲后儿子
+    // componentInstance 就是Component的实例
+    // 后面还会用到 因此缓存 this._componentInstance
+    // 实例化                        Counter 当前组件的实例
+    let componentInstance = (this._componentInstance = new Component(props));
+    // 让组件的实例的_currentUnit属性等于当前的Unit 更新会勇担
+    componentInstance._currentUnit = this;
+    // 先父亲后儿子 生命周期
     componentInstance.componentWillMount &&
       componentInstance.componentWillMount();
 
     // 执行实例的render函数
     let reactComponentRenderer = componentInstance.render(); // number  div  ...
-    // 递归渲染组件 render后的返回结果
-    // 返回一个实例
-    let reactCompositUnitInstance = createReactUnit(reactComponentRenderer);
-    let markUp = reactCompositUnitInstance.getMarkUp(rootId);
+    // 递归渲染组件 render后的返回结果 得到unit
+    // 返回一个实例                               组件的render的实例，返回的react元素对应的unit currentElement->react元素 （缓存一下 更新会用）
+    let reactCompositeUnitInstance = (this._renderedUnitInstance = createReactUnit(
+      reactComponentRenderer
+    ));
+    // 通过unit可以获得他的html 标记markup 返回一个string // 递归
+    let markUp = reactCompositeUnitInstance.getMarkUp(rootId);
     // 先儿子后父亲
     // 递归后绑定的事件 这样的话就是儿子的先挂载  子组件经过人的render之后就会绑定
     $(document).on("mounted", () => {
@@ -104,8 +124,66 @@ class ReactCompositeUnit extends Unit {
     });
     return markUp; // 实现把render方法返回的结果 作为字符串返回回去
   }
+  // 处理组件的更新操作
+  update(nextElement, partialState) {
+    // 获取新的元素
+    this.currentElement = nextElement || this.currentElement;
+    // 获取新的状态 合并,不管是否更新组件 组件状态定会更改
+    let nextState = Object.assign(this._componentInstance.state, partialState);
+    let nextProps = this.currentElement.props;
+    // 询问是否更新
+    if (
+      this._componentInstance.shouldComponentUpdate &&
+      !this._componentInstance.shouldComponentUpdate(nextProps, nextState)
+    ) {
+      return;
+    }
+    // 下面进行DOM diff 比较更新。 两次的render结果
+    // 上次的单元
+    let preRenderUnitInstance = this._renderedUnitInstance;
+    // 上次渲染的元素
+    let preRenderElement = preRenderUnitInstance.currentElement;
+    // diff
+    let nextRenderElement = this._componentInstance.render();
+    // 判断是否进行深度比较
+    //如果新旧元素类型一样 深度比较 否则新的替换老的  同级比较
+    if (shouldDeepCompare(preRenderElement, nextRenderElement)) {
+      // update 传入新的element
+      // 如果可以进行新比较 则把更新的工作交给上次渲染出来的那个element元素对应的unit来处理
+      preRenderUnitInstance.update(nextRenderElement);
+      this._renderedUnitInstance.componentDidUpdate &&
+        this._renderedUnitInstance.componentDidUpdate();
+    } else {
+      this._renderedUnitInstance = createReactUnit(nextRenderElement);
+      let nextMarkUp = this._renderedUnitInstance.getMarkUp(this._rootId);
+      $(`[data-reactid="${this._rootId}"]`).replaceWith(nextMarkUp);
+    }
+  }
 }
 
+/**
+ * 判断是否进行深度比较 判断类型是否一样
+ * @param {*} preRenderElement 先前的元素
+ * @param {*} nextRenderElement 下一个元素
+ */
+function shouldDeepCompare(oldElement, newElement) {
+  if (oldElement !== null && newElement !== null) {
+    let oldType = typeof oldElement;
+    let newType = typeof newElement;
+    // 文本数字
+    if (
+      (oldType === "string" || oldType === "number") &&
+      (newType === "string" || newType === "number")
+    ) {
+      return true;
+    }
+    // 元素
+    if (oldElement instanceof Element && newElement instanceof Element) {
+      return oldType === newType;
+    }
+  }
+  return false;
+}
 /**
  *
  * @param {*} element 字符串 number function class
