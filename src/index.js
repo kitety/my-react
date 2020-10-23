@@ -9,7 +9,7 @@ class SubCounter extends React.Component {
   constructor(props) {
     // 传给父类
     super(props);
-    this.state = { number: 1 };
+    this.state = { number: 1, odd: true };
   }
   componentWillMount() {
     console.log("child组件将挂载");
@@ -19,6 +19,11 @@ class SubCounter extends React.Component {
     // setInterval(() => {
     //   this.setState({ number: this.state.number + 1 });
     // }, 1000);
+    setTimeout(() => {
+      console.log("change");
+
+      this.setState({ odd: !this.state.odd });
+    }, 1000);
   }
   componentDidUpdate() {
     console.log("componentDidUpdate");
@@ -33,17 +38,38 @@ class SubCounter extends React.Component {
   render() {
     console.log("child render", this.state.number);
 
-    return (
-      <div
-        onClick={this.handleClick}
-        style={{
-          color: this.state.number % 2 === 0 ? "red" : "green",
-          fontSize: "80px",
-        }}
-      >
-        {this.state.number}
-      </div>
-    );
+    if (this.state.odd) {
+      return React.createElement(
+        "ul",
+        { id: "old" },
+        React.createElement("li", { key: "A" }, "A"),
+        React.createElement("li", { key: "B" }, "B"),
+        React.createElement("li", { key: "C" }, "C"),
+        React.createElement("li", { key: "D" }, "D")
+      );
+    } else {
+      return React.createElement(
+        "ul",
+        { id: "new" },
+        React.createElement("li", { key: "A" }, "A1"),
+        React.createElement("li", { key: "C" }, "C1"),
+        React.createElement("li", { key: "B" }, "B1"),
+        React.createElement("li", { key: "E" }, "E1"),
+        React.createElement("li", { key: "F" }, "F")
+      );
+    }
+
+    // return (
+    //   <div
+    //     onClick={this.handleClick}
+    //     style={{
+    //       color: this.state.number % 2 === 0 ? "red" : "green",
+    //       fontSize: "80px",
+    //     }}
+    //   >
+    //     {this.state.number}
+    //   </div>
+    // );
   }
 }
 
