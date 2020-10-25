@@ -9,6 +9,9 @@ class Unit {
   constructor(element) {
     this.currentElement = element;
   }
+  getMarkUp () {
+    throw Error('此方法不能被调用');
+  }
 }
 // 方便扩展;
 class ReactTextUnit extends Unit {
@@ -17,13 +20,13 @@ class ReactTextUnit extends Unit {
   //   this.element = element;
   // }
   // 每个类重写这个方法
-  getMarkUp(rootId) {
+  getMarkUp (rootId) {
     // 保存当前元素的id
     this._rootId = rootId;
     // 返回当前元素的html
     return `<span data-reactid="${rootId}">${this.currentElement}</span>`;
   }
-  update(nextElement) {
+  update (nextElement) {
     // ？？
     // const nextElementStr = `<span data-reactid="${this._rootId}">${nextElement}</span>`;
     if (this.currentElement !== nextElement) {
@@ -36,7 +39,7 @@ class ReactTextUnit extends Unit {
 // React.createElement("div", null, "hello ", /*#__PURE__*/React.createElement("span", null, "3423432"));
 class ReactNativeUnit extends Unit {
   // 每个类重写这个方法
-  getMarkUp(rootId) {
+  getMarkUp (rootId) {
     // 保存当前元素的id
     this._rootId = rootId;
     //  object 转换为 string
@@ -95,7 +98,7 @@ class ReactNativeUnit extends Unit {
     // 返回拼接后的字符串
     return tagStart + ">" + childStr + tagEnd;
   }
-  update(nextElement) {
+  update (nextElement) {
     // 新旧属性
     let oldProps = this.currentElement.props;
     let newProps = nextElement.props;
@@ -103,7 +106,7 @@ class ReactNativeUnit extends Unit {
     this.updateDomProperties(oldProps, newProps);
     this.updateDomChildren(nextElement.props.children);
   }
-  updateDomProperties(oldProps, newProps) {
+  updateDomProperties (oldProps, newProps) {
     // 删掉老属性有 新属性无的属性
     for (const propsName in oldProps) {
       if (!newProps.hasOwnProperty(propsName)) {
@@ -149,17 +152,75 @@ class ReactNativeUnit extends Unit {
     }
   }
   //  传入新的children ，和旧的对比，找出差异
-  updateDomChildren(newChildrenElement) {
+  updateDomChildren (newChildrenElement) {
+    // 记录update
+    updateDepth++
     // 队列和新的children
     this.diff(diffQueue, newChildrenElement);
-    console.log("diffQueue: ", diffQueue);
+    updateDepth--
+    // 意味着整个树遍历完成 深度优先
+    if (updateDepth === 0) {
+      this.patch(diffQueue)
+      diffQueue = []
+    }
   }
+  patch (diffQueue) {
+    console.log('====================================');
+    console.log(diffQueue);
+    console.log('====================================');
+    // 所有将要删除的节点
+    let deletedChildren = []
+    // 暂存能复用的节点 移动啥的
+    let deleteMap = {}
+    for (let i = 0; i < diffQueue.length; i++) {
+      // 取出一个
+      const difference = diffQueue[i];
+      // 要删除的节点  直接删除 间接删除
+      // 先删除再插入
+      if (difference.type === types.MOVE || difference.type === types.REMOVE) {
+        // 取出索引
+        let fromIndex = difference.fromIndex
+        // 取出老元素
+        let oldChild = $(difference.parentNode.children().get(fromIndex))
+        deleteMap[fromIndex] = oldChild
+        deletedChildren.push(oldChild)
+      }
+      $.each(deletedChildren, (index, item) => $(item).remove())
+      for (let i = 0; i < diffQueue.length; i++) {
+        const difference = diffQueue[i];
+        switch (difference.type) {
+          case types.INSERT:
+            this.insertChildAt(difference.parentNode, difference.toIndex, $(difference.markUp));
+            break;
+
+          case types.MOVE:
+            this.insertChildAt(difference.parentNode, difference.toIndex, deleteMap[difference.fromIndex]);
+            break;
+
+          default:
+            break;
+        }
+
+      }
+    }
+  }
+  insertChildAt (parentNode, index, newNode) {
+    // 判断index是否占用
+    let oldChild = parentNode.children().get(index);
+    // 有节点插入到前面 没有的话插入到后面
+    oldChild ? newNode.insertBefore(oldChild) : newNode.appendTo(parentNode)
+
+  }
+
   /**
    *
    * @param {*} diffQueue 队列
    * @param {*} newChildrenElement  newChildrenElement
    */
-  diff(diffQueue, newChildrenElement) {
+  diff (diffQueue, newChildrenElement) {
+    console.log(
+      newChildrenElement
+    );
     // 每个节点生成unit
     // _renderedChildrenUnits 已经渲染的儿子节点的单元unit
     // 第一步 MAP KEY 对应老的unit
@@ -226,7 +287,7 @@ class ReactNativeUnit extends Unit {
       }
     }
   }
-  getNewChildren(oldChildrenUnitMap, newChildrenElement) {
+  getNewChildren (oldChildrenUnitMap, newChildrenElement) {
     let newChildrenUnits = [];
     let newChildrenUnitMap = {};
     newChildrenElement.forEach((newElement, index) => {
@@ -257,7 +318,7 @@ class ReactNativeUnit extends Unit {
     return { newChildrenUnits, newChildrenUnitMap };
   }
   // old children array
-  getOldChildrenMap(childrenUnits = []) {
+  getOldChildrenMap (childrenUnits = []) {
     let map = {};
     for (let i = 0; i < childrenUnits.length; i++) {
       // 取出key || index作为key
@@ -276,7 +337,7 @@ class ReactCompositeUnit extends Unit {
   _componentInstance 当前的组件实例
   _renderedUnitInstance 当前组件render方法返回的react元素对应的unit currentElement指向react元素
   */
-  getMarkUp(rootId) {
+  getMarkUp (rootId) {
     this._rootId = rootId;
     // new Component 调用render函数
     let { type: Component, props } = this.currentElement;
@@ -308,7 +369,7 @@ class ReactCompositeUnit extends Unit {
     return markUp; // 实现把render方法返回的结果 作为字符串返回回去
   }
   // 处理组件的更新操作
-  update(nextElement, partialState) {
+  update (nextElement, partialState) {
     // 获取新的元素
     this.currentElement = nextElement || this.currentElement;
     // 获取新的状态 合并,不管是否更新组件 组件状态定会更改
@@ -332,9 +393,10 @@ class ReactCompositeUnit extends Unit {
     //如果新旧元素类型一样 深度比较 否则新的替换老的  同级比较
     if (shouldDeepCompare(preRenderElement, nextRenderElement)) {
       // update 传入新的element
-      // 如果可以进行新比较 则把更新的工作交给上次渲染出来的那个element元素对应的unit来处理
+      // 如果可以进行深比较 则把更新的工作交给上次渲染出来的那个element元素对应的unit来处理
       // preRenderUnitInstance  render的实例
       preRenderUnitInstance.update(nextRenderElement);
+      // Counter
       this._renderedUnitInstance.componentDidUpdate &&
         this._renderedUnitInstance.componentDidUpdate();
     } else {
@@ -350,7 +412,7 @@ class ReactCompositeUnit extends Unit {
  * @param {*} preRenderElement 先前的元素
  * @param {*} nextRenderElement 下一个元素
  */
-function shouldDeepCompare(oldElement, newElement) {
+function shouldDeepCompare (oldElement, newElement) {
   if (oldElement !== null && newElement !== null) {
     let oldType = typeof oldElement;
     let newType = typeof newElement;
@@ -373,7 +435,7 @@ function shouldDeepCompare(oldElement, newElement) {
  * @param {*} element 字符串 number function class
  * @return 返回一个实例
  */
-function createReactUnit(element) {
+function createReactUnit (element) {
   // 先对字符串处理
   if (typeof element === "string" || typeof element === "number") {
     return new ReactTextUnit(element);
