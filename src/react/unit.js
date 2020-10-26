@@ -1,454 +1,319 @@
-import $ from "jquery";
-import { Element } from "./element";
-import types from "./types";
-
-let diffQueue = []; // 差异队列
-let updateDepth = 0; // 更新级别 往下面一层 +1 出来一层-1
+import { Element, createElement } from './element';
+import $ from 'jquery';
+import types from './types';
+let diffQueue = [];//差异队列
+let updateDepth = 0;//更新的级别
 class Unit {
-  // 父类保存参数
   constructor(element) {
-    this.currentElement = element;
+    //凡是挂载到私有属性上的都以_开头
+    this._currentElement = element;
   }
-  getMarkUp() {
-    throw Error("此方法不能被调用");
+  getMarkUp () {
+    throw Error('此方法不能被调用');
   }
 }
-// 方便扩展;
-class ReactTextUnit extends Unit {
-  // 每个类型都这样 不方便 因此写个父类
-  // constructor(element) {
-  //   this.element = element;
-  // }
-  // 每个类重写这个方法
-  getMarkUp(rootId) {
-    // 保存当前元素的id
-    this._rootId = rootId;
-    // 返回当前元素的html
-    return `<span data-reactid="${rootId}">${this.currentElement}</span>`;
+class TextUnit extends Unit {
+  getMarkUp (reactid) {
+    this._reactid = reactid;
+    return `<span data-reactid="${reactid}">${this._currentElement}</span>`;
   }
-  update(nextElement) {
-    // ？？
-    // const nextElementStr = `<span data-reactid="${this._rootId}">${nextElement}</span>`;
-    if (this.currentElement !== nextElement) {
-      this.currentElement = nextElement;
-      // 都是通过data-reactid属性来更新的
-      $(`[data-reactid="${this._rootId}"]`).html(nextElement);
+  update (nextElement) {
+    if (this._currentElement !== nextElement) {
+      this._currentElement = nextElement;
+      $(`[data-reactid="${this._reactid}"]`).html(this._currentElement);
     }
   }
 }
-// React.createElement("div", null, "hello ", /*#__PURE__*/React.createElement("span", null, "3423432"));
-class ReactNativeUnit extends Unit {
-  // 每个类重写这个方法
-  getMarkUp(rootId) {
-    // 保存当前元素的id
-    this._rootId = rootId;
-    //  object 转换为 string
-    // 拼接需要渲染的内容
-    let { type, props } = this.currentElement;
-    let tagStart = `<${type} data-reactid="${rootId}"`;
+/**
+{type:'button',props:{id:'sayHello'},children:['say',{type:'b',{},'Hello'}]}
+<button id="sayHello" style="color:red;background-color:'green" onclick="sayHello()">
+   <span>say</span>
+   <b>Hello</b>
+</button>
+*/
+class NativeUnit extends Unit {
+  getMarkUp (reactid) {
+    this._reactid = reactid;
+    let { type, props } = this._currentElement;
+    let tagStart = `<${type} data-reactid="${this._reactid}"`;
+    let childString = '';
     let tagEnd = `</${type}>`;
-    let childStr = "";
-    this._renderedChildrenUnits = []; // 已经渲染的儿子节点的单元unit dom diff
-    for (const propsName in props) {
-      // 绑定事件
-      if (/on[A-Z]/.test(propsName)) {
-        let eventType = propsName.slice(2).toLowerCase(); //click
-        // 事件委托  目标元素还是一个字符串
-        // react 里面的事件 事件委托  namespace 方便取消事件
+    this._renderedChildrenUnits = [];
+    //{id:'sayHello',onClick:sayHello,style:{color:'red',backgroundColor:'green'}},children:['say',{type:'b',{},'Hello'}]
+    for (let propName in props) {
+      if (/^on[A-Z]/.test(propName)) {//这说明要绑定事件了
+        let eventName = propName.slice(2).toLowerCase();//click
         $(document).on(
-          `${eventType}.${rootId}`,
-          `[data-reactid="${rootId}"]`,
-          props[propsName]
-        );
-      } else if (propsName === "style") {
-        let styleObj = props[propsName];
-        let styles = Object.entries(styleObj)
-          .map(([attr, value]) => {
-            attr = attr.replace(
-              /[A-Z]/g,
-              (group1) => `-${group1.toLowerCase()}`
-            );
-            return `${attr}:${value}`;
-          })
-          .join(";");
-        tagStart += ` style="${styles}" `;
-      } else if (propsName === "className") {
-        tagStart += ` class="${props[propsName]}" `;
-      }
-      // 循环递归 children
-      else if (propsName === "children") {
-        // 是个数组 返回['<span>你好</span>'，'<button>123</button>']
-        childStr = props[propsName]
-          .map((child, index) => {
-            // 递归 循环子节点
-            let childInstance = createReactUnit(child);
-            // 每个unit有个_mountIndex属性
-            childInstance._mountIndex = index; // 指向自己在父节点中的索引位置
-            // 每个子元素的实例
-            this._renderedChildrenUnits.push(childInstance);
-            // 拿到一个字符串
-            return childInstance.getMarkUp(`${rootId}.${index}`);
-          })
-          .join("");
-      } else {
-        // 拼接
-        tagStart += `${propsName}="${props[propsName]}"`;
-      }
-    }
-    // 返回拼接后的字符串
-    return tagStart + ">" + childStr + tagEnd;
-  }
-  update(nextElement) {
-    // 新旧属性
-    let oldProps = this.currentElement.props;
-    let newProps = nextElement.props;
-    // 更新属性
-    this.updateDomProperties(oldProps, newProps);
-    this.updateDomChildren(nextElement.props.children);
-  }
-  updateDomProperties(oldProps, newProps) {
-    // 删掉老属性有 新属性无的属性
-    for (const propsName in oldProps) {
-      if (!newProps.hasOwnProperty(propsName)) {
-        // 删掉没有的属性
-        $(`[data-reactid="${this._rootId}"]`).removeAttr(propsName);
-      }
-      if (/^on[A-Z]/.test(propsName)) {
-        $(document).off(`.${this._rootId}`);
-      }
-    }
-    // 避免多次绑定 就先把上面的事件全部去取消  因为 下面的操作会重新绑定
-    for (const propsName in newProps) {
-      // 先不处理 深度优先
-      if (propsName === "children") {
-        continue;
-      } else if (/on[A-Z]/.test(propsName)) {
-        let eventType = propsName.slice(2).toLowerCase(); //click
-        // 事件委托  目标元素还是一个字符串
-        // react 里面的事件 事件委托  namespace 方便取消事件
-        $(document).on(
-          `${eventType}.${this._rootId}`,
+          `${eventName}.${this._rootId}`,
           `[data-reactid="${this._rootId}"]`,
-          newProps[propsName]
+          props[propName]
         );
-      } else if (propsName === "className") {
-        // $(`[data-reactid="${this._rootId}"]`)[0].className =newProps[propsName];
-        $(`[data-reactid="${this._rootId}"]`).attr(
-          "class",
-          newProps[propsName]
-        );
-      } else if (propsName === "style") {
-        let styleObj = newProps[propsName];
-        Object.entries(styleObj).map(([attr, value]) => {
-          attr = attr.replace(/[A-Z]/g, (group1) => `-${group1.toLowerCase()}`);
-          $(`[data-reactid="${this._rootId}"]`).css(attr, value);
+      } else if (propName === 'style') {//如果是一个样式对象
+        let styleObj = props[propName];
+        let styles = Object.entries(styleObj).map(([attr, value]) => {
+          return `${attr.replace(/[A-Z]/g, m => `-${m.toLowerCase()}`)}:${value}`;
+        }).join(';');
+        tagStart += (` style="${styles}" `);
+      } else if (propName === 'className') {//如果是一个类名的话
+        tagStart += (` class="${props[propName]}" `);
+      } else if (propName == 'children') {
+        let children = props[propName];
+        children.forEach((child, index) => {
+          let childUnit = createUnit(child);//可能是一个字符中，也可以也是一个react元素 虚拟DOM
+          childUnit._mountIndex = index;//每个unit有一个_mountIndex 属性，指向自己在父节点中的索引位置
+          this._renderedChildrenUnits.push(childUnit);
+          let childMarkUp = childUnit.getMarkUp(`${this._reactid}.${index}`);
+          childString += childMarkUp;
         });
       } else {
-        $(`[data-reactid="${this._rootId}"]`).prop(
-          propsName,
-          newProps[propsName]
-        );
+        tagStart += (` ${propName}=${props[propName]} `);
       }
     }
+    return tagStart + ">" + childString + tagEnd;
   }
-  //  传入新的children ，和旧的对比，找出差异
-  updateDomChildren(newChildrenElement) {
-    // 记录update
+  update (nextElement) {
+    console.log(nextElement);
+    let oldProps = this._currentElement.props;
+    let newProps = nextElement.props;
+    this.updateDOMProperties(oldProps, newProps);
+    this.updateDOMChildren(nextElement.props.children);
+  }
+  //此处要把新的儿子们传过来，然后后我老的儿子们进行对比，然后找出差异，进行修改DOM
+  updateDOMChildren (newChildrenElements) {
     updateDepth++;
-    // 队列和新的children
-    this.diff(diffQueue, newChildrenElement);
+    this.diff(diffQueue, newChildrenElements);
     updateDepth--;
-    // 意味着整个树遍历完成 深度优先
     if (updateDepth === 0) {
       this.patch(diffQueue);
       diffQueue = [];
     }
   }
-  patch(diffQueue) {
-    console.log("====================================");
-    console.log(diffQueue);
-    console.log("====================================");
-    // 所有将要删除的节点
-    let deletedChildren = [];
-    // 暂存能复用的节点 移动啥的
-    let deleteMap = {};
+  patch (diffQueue) {
+    let deleteChildren = [];//这里要放着所有将要删除的节点
+    let deleteMap = {};//这里暂存能复用的节点
     for (let i = 0; i < diffQueue.length; i++) {
-      // 取出一个
-      const difference = diffQueue[i];
-      // 要删除的节点  直接删除 间接删除
-      // 先删除再插入
+      let difference = diffQueue[i];
       if (difference.type === types.MOVE || difference.type === types.REMOVE) {
-        // 取出索引
         let fromIndex = difference.fromIndex;
-        // 取出老元素
         let oldChild = $(difference.parentNode.children().get(fromIndex));
         deleteMap[fromIndex] = oldChild;
-        deletedChildren.push(oldChild);
+        deleteChildren.push(oldChild);
       }
-      $.each(deletedChildren, (index, item) => $(item).remove());
-      for (let i = 0; i < diffQueue.length; i++) {
-        const difference = diffQueue[i];
-        switch (difference.type) {
-          case types.INSERT:
-            this.insertChildAt(
-              difference.parentNode,
-              difference.toIndex,
-              $(difference.markUp)
-            );
-            break;
+    }
+    $.each(deleteChildren, (idx, item) => $(item).remove());
 
-          case types.MOVE:
-            this.insertChildAt(
-              difference.parentNode,
-              difference.toIndex,
-              deleteMap[difference.fromIndex]
-            );
-            break;
-
-          default:
-            break;
-        }
+    for (let i = 0; i < diffQueue.length; i++) {
+      let difference = diffQueue[i];
+      switch (difference.type) {
+        case types.INSERT:
+          this.insertChildAt(difference.parentNode, difference.toIndex, $(difference.markUp));
+          break;
+        case types.MOVE:
+          this.insertChildAt(difference.parentNode, difference.toIndex, deleteMap[difference.fromIndex]);
+          break;
+        default:
+          break;
       }
     }
   }
-  insertChildAt(parentNode, index, newNode) {
-    // 判断index是否占用
+  insertChildAt (parentNode, index, newNode) {
     let oldChild = parentNode.children().get(index);
-    // 有节点插入到前面 没有的话插入到后面
     oldChild ? newNode.insertBefore(oldChild) : newNode.appendTo(parentNode);
   }
-
-  /**
-   *
-   * @param {*} diffQueue 队列
-   * @param {*} newChildrenElement  newChildrenElement
-   */
-  diff(diffQueue, newChildrenElement) {
-    console.log(newChildrenElement);
-    // 每个节点生成unit
-    // _renderedChildrenUnits 已经渲染的儿子节点的单元unit
-    // 第一步 MAP KEY 对应老的unit
-    let oldChildrenUnitMap = this.getOldChildrenMap(
-      this._renderedChildrenUnits
-    );
-    /**
-     * 1.先找找老的有没有老的集合里面有没有能用的 有就复用  或者更新属性 没有的话就创建
-     * 第二部 商城一个新的儿子unit的数组
-     */
-    let { newChildrenUnits, newChildrenUnitMap } = this.getNewChildren(
-      oldChildrenUnitMap,
-      newChildrenElement
-    );
-    // 老的节点根据操作如何才能得到新的节点状态
-    // lastIndex 上一个已经确定位置的索引 最后一个不需要动的索引
-    let lastIndex = 0;
+  diff (diffQueue, newChildrenElements) {
+    //第一生成一个map,key=老的unit
+    let oldChildrenUnitMap = this.getOldChildrenMap(this._renderedChildrenUnits);
+    //第二步生成一个新的儿子unit的数组
+    let { newChildrenUnitMap, newChildrenUnits } = this.getNewChildren(oldChildrenUnitMap, newChildrenElements);
+    let lastIndex = 0;//上一个已经确定位置的索引
     for (let i = 0; i < newChildrenUnits.length; i++) {
-      const newUnit = newChildrenUnits[i];
-      let newKey =
-        (newUnit.currentElement &&
-          newUnit.currentElement.props &&
-          newUnit.currentElement.props.key) ||
-        i.toString();
+      let newUnit = newChildrenUnits[i];
+      //第一个拿 到的就是newKey=A
+      let newKey = (newUnit._currentElement.props && newUnit._currentElement.props.key) || i.toString();
       let oldChildUnit = oldChildrenUnitMap[newKey];
-      // 比较index index小的动
-      if (oldChildUnit === newUnit) {
-        // 一样 复用老节点 引用类型 可以比较  同一个对象 可以复用
+      if (oldChildUnit === newUnit) {//如果说新老一致的话说明复用了老节点
         if (oldChildUnit._mountIndex < lastIndex) {
-          // old节点移动
           diffQueue.push({
-            parentId: this._rootId,
-            parentNode: $(`[data-reactid="${this._rootId}"]`), // dom元素
+            parentId: this._reactid,
+            parentNode: $(`[data-reactid="${this._reactid}"]`),
             type: types.MOVE,
             fromIndex: oldChildUnit._mountIndex,
-            toIndex: i, // 移动到当前位置i
+            toIndex: i
           });
         }
-        // 取较大值
         lastIndex = Math.max(lastIndex, oldChildUnit._mountIndex);
       } else {
-        // 新的节点
+        if (oldChildUnit) {
+          diffQueue.push({
+            parentId: this._reactid,
+            parentNode: $(`[data-reactid="${this._reactid}"]`),
+            type: types.REMOVE,
+            fromIndex: oldChildUnit._mountIndex
+          });
+          $(document).off(`.${oldChildUnit._reactid}`);
+
+        }
         diffQueue.push({
-          parentId: this._rootId,
-          parentNode: $(`[data-reactid="${this._rootId}"]`), // dom元素
+          parentId: this._reactid,
+          parentNode: $(`[data-reactid="${this._reactid}"]`),
           type: types.INSERT,
-          toIndex: i, // 移动到当前位置i
-          markUp: newUnit.getMarkUp(`${this._rootId}.${i}`), // 父亲id+索引值
+          toIndex: i,
+          markUp: newUnit.getMarkUp(`${this._reactid}.${i}`)
         });
       }
-      // 更新一下 _mountIndex  不管结果如何都需要更新
       newUnit._mountIndex = i;
     }
-    // 删除多余的
-    for (const oldKey in oldChildrenUnitMap) {
+    for (let oldKey in oldChildrenUnitMap) {
       let oldChild = oldChildrenUnitMap[oldKey];
       if (!newChildrenUnitMap.hasOwnProperty(oldKey)) {
         diffQueue.push({
-          parentId: this._rootId,
-          parentNode: $(`[data-reactid="${this._rootId}"]`), // dom元素
+          parentId: this._reactid,
+          parentNode: $(`[data-reactid="${this._reactid}"]`),
           type: types.REMOVE,
-          fromIndex: oldChild._mountIndex, // 移动到当前位置i
+          fromIndex: oldChild._mountIndex
         });
       }
     }
+
   }
-  getNewChildren(oldChildrenUnitMap, newChildrenElement) {
+  getNewChildren (oldChildrenUnitMap, newChildrenElements) {
     let newChildrenUnits = [];
     let newChildrenUnitMap = {};
-    newChildrenElement.forEach((newElement, index) => {
-      // 一定要给可以 尽量不要他走内部的索引key
-      let newKey =
-        (newElement && newElement.props && newElement.props.key) ||
-        index.toString();
-      let oldUnit = oldChildrenUnitMap[newKey]; //找到老的unit
-      let oldElement = oldUnit && oldUnit.currentElement; // 获取老元素
-      // dom diff
+    newChildrenElements.forEach((newElement, index) => {
+      //一定要给定key，千万不要让它走内的索引key
+      let newKey = (newElement.props && newElement.props.key) || index.toString();
+      let oldUnit = oldChildrenUnitMap[newKey];//找到老的unit
+      let oldElement = oldUnit && oldUnit._currentElement;//获取老元素
       if (shouldDeepCompare(oldElement, newElement)) {
-        // 一样 可以复用
-        // 递归update
         oldUnit.update(newElement);
-        // 更新之哦户是最新的 可以复用了
-        // 放入数组
         newChildrenUnits.push(oldUnit);
         newChildrenUnitMap[newKey] = oldUnit;
       } else {
-        // 不可复用就创建新的unit
-        let nextUnit = createReactUnit(newElement);
+        let nextUnit = createUnit(newElement);
         newChildrenUnits.push(nextUnit);
         newChildrenUnitMap[newKey] = nextUnit;
       }
     });
-    return { newChildrenUnits, newChildrenUnitMap };
+    return { newChildrenUnitMap, newChildrenUnits };
   }
-  // old children array
-  getOldChildrenMap(childrenUnits = []) {
+  getOldChildrenMap (childrenUnits = []) {
     let map = {};
     for (let i = 0; i < childrenUnits.length; i++) {
-      // 取出key || index作为key
-      let key =
-        (childrenUnits[i].currentElement.props &&
-          childrenUnits[i].currentElement.props.key) ||
-        i.toString();
-      map[key] = childrenUnits[i];
+      let unit = childrenUnits[i];
+      let key = (unit._currentElement.props && unit._currentElement.props.key) || i.toString();
+      map[key] = unit;
     }
     return map;
   }
-}
-// 负责渲染react组件;
-class ReactCompositeUnit extends Unit {
-  /*
-  _componentInstance 当前的组件实例
-  _renderedUnitInstance 当前组件render方法返回的react元素对应的unit currentElement指向react元素
-  */
-  getMarkUp(rootId) {
-    this._rootId = rootId;
-    // new Component 调用render函数
-    let { type: Component, props } = this.currentElement;
-    // componentInstance 就是Component的实例
-    // 后面还会用到 因此缓存 this._componentInstance
-    // 实例化                        Counter 当前组件的实例
-    let componentInstance = (this._componentInstance = new Component(props));
-    // 让组件的实例的_currentUnit属性等于当前的Unit 更新会勇担
-    componentInstance._currentUnit = this;
-    // 先父亲后儿子 生命周期
-    componentInstance.componentWillMount &&
-      componentInstance.componentWillMount();
-
-    // 执行实例的render函数
-    let reactComponentRenderer = componentInstance.render(); // number  div  ...
-    // 递归渲染组件 render后的返回结果 得到unit
-    // 返回一个实例                               组件的render的实例，返回的react元素对应的unit currentElement->react元素 （缓存一下 更新会用）
-    let reactCompositeUnitInstance = (this._renderedUnitInstance = createReactUnit(
-      reactComponentRenderer
-    ));
-    // 通过unit可以获得他的html 标记markup 返回一个string // 递归
-    let markUp = reactCompositeUnitInstance.getMarkUp(rootId);
-    // 先儿子后父亲
-    // 递归后绑定的事件 这样的话就是儿子的先挂载  子组件经过人的render之后就会绑定
-    $(document).on("mounted", () => {
-      componentInstance.componentDidMount &&
-        componentInstance.componentDidMount();
-    });
-    return markUp; // 实现把render方法返回的结果 作为字符串返回回去
+  updateDOMProperties (oldProps, newProps) {
+    let propName;
+    for (propName in oldProps) {//循环老的属性集合
+      if (!newProps.hasOwnProperty(propName)) {
+        $(`[data-reactid="${this._reactid}"]`).removeAttr(propName);
+      }
+      if (/^on[A-Z]/.test(propName)) {
+        $(document).off(`.${this._reactid}`);
+      }
+    }
+    for (propName in newProps) {
+      if (propName == 'children') {//如果儿子属性的话，我们先不处理
+        continue;
+      } else if (/^on[A-Z]/.test(propName)) {
+        let eventName = propName.slice(2).toLowerCase();//click
+        // $(document).delegate(`[data-reactid="${this._reactid}"]`, `${eventName}.${this._reactid}`, newProps[propName]);
+        $(document).on(
+          `${eventName}.${this._rootId}`,
+          `[data-reactid="${this._rootId}"]`,
+          newProps[propName]
+        );
+      } else if (propName === 'className') {//如果是一个类名的话
+        //$(`[data-reactid="${this._reactid}"]`)[0].className = newProps[propName];
+        $(`[data-reactid="${this._reactid}"]`).attr('class', newProps[propName]);
+      } else if (propName == 'style') {
+        let styleObj = newProps[propName];
+        Object.entries(styleObj).map(([attr, value]) => {
+          $(`[data-reactid="${this._reactid}"]`).css(attr, value);
+        })
+      } else {
+        $(`[data-reactid="${this._reactid}"]`).prop(propName, newProps[propName]);
+      }
+    }
   }
-  // 处理组件的更新操作
-  update(nextElement, partialState) {
-    // 获取新的元素
-    this.currentElement = nextElement || this.currentElement;
-    // 获取新的状态 合并,不管是否更新组件 组件状态定会更改
+}
+// dom.dataset.reactid  $(dom).data('reactid');
+class CompositeUnit extends Unit {
+  //这里负责处理组件的更新操作
+  update (nextElement, partialState) {
+    //先获取到新的元素
+    this._currentElement = nextElement || this._currentElement;
+    //获取新的状态,不管要不要更新组件，组件的状态一定要修改
     let nextState = Object.assign(this._componentInstance.state, partialState);
-    let nextProps = this.currentElement.props;
-    // 询问是否更新
-    if (
-      this._componentInstance.shouldComponentUpdate &&
-      !this._componentInstance.shouldComponentUpdate(nextProps, nextState)
-    ) {
+    //新的属性对象
+    let nextProps = this._currentElement.props;
+    if (this._componentInstance.shouldComponentUpdate && !this._componentInstance.shouldComponentUpdate(nextProps, nextState)) {
       return;
     }
-    // 下面进行DOM diff 比较更新。 两次的render结果
-    // 上次的单元
-    let preRenderUnitInstance = this._renderedUnitInstance;
-    // 上次渲染的元素
-    let preRenderElement = preRenderUnitInstance.currentElement;
-    // diff
+    // 下面要进行比较更新 先得到上次渲染的单元
+    let preRenderedUnitInstance = this._renderedUnitInstance;
+    //得到上次渲染的元素
+    let preRenderedElement = preRenderedUnitInstance._currentElement;
     let nextRenderElement = this._componentInstance.render();
-    // 判断是否进行深度比较
-    //如果新旧元素类型一样 深度比较 否则新的替换老的  同级比较
-    if (shouldDeepCompare(preRenderElement, nextRenderElement)) {
-      // update 传入新的element
-      // 如果可以进行深比较 则把更新的工作交给上次渲染出来的那个element元素对应的unit来处理
-      // preRenderUnitInstance  render的实例
-      preRenderUnitInstance.update(nextRenderElement);
-      // Counter
-      this._renderedUnitInstance.componentDidUpdate &&
-        this._renderedUnitInstance.componentDidUpdate();
+    //如果新旧两个元素类型一样，则可以进行深度比较，如果不一样，直接干掉老的元素，新建新的
+    if (shouldDeepCompare(preRenderedElement, nextRenderElement)) {
+      //如果可以进行深比较，则把更新的工作交给上次渲染出来的那个element元素对应的unit来处理
+      preRenderedUnitInstance.update(nextRenderElement);
+      this._componentInstance.componentDidUpdate && this._componentInstance.componentDidUpdate();
     } else {
-      this._renderedUnitInstance = createReactUnit(nextRenderElement);
-      let nextMarkUp = this._renderedUnitInstance.getMarkUp(this._rootId);
-      $(`[data-reactid="${this._rootId}"]`).replaceWith(nextMarkUp);
+      this._renderedUnitInstance = createUnit(nextRenderElement);
+      let nextMarkUp = this._renderedUnitInstance.getMarkUp();
+      $(`[data-reactid="${this._reactid}"]`).replaceWith(nextMarkUp);
     }
   }
+  getMarkUp (reactid) {
+    this._reactid = reactid;
+    let { type: Component, props } = this._currentElement;
+    let componentInstance = this._componentInstance = new Component(props);
+    //让组件的实例的currentUnit属性等于当前的unit
+    componentInstance._currentUnit = this;
+    //如果有组件将要渲染的函数的话让它执行
+    componentInstance.componentWillMount && componentInstance.componentWillMount();
+    //调用组件的render方法，获得要渲染的元素
+    let renderedElement = componentInstance.render();//0
+    //得到这个元素对应的unit
+    let renderedUnitInstance = this._renderedUnitInstance = createUnit(renderedElement);
+    //通过unit可以获得它的html 标记markup
+    let renderedMarkUp = renderedUnitInstance.getMarkUp(this._reactid);
+    //在这个时候绑定一个事件
+    $(document).on('mounted', () => {
+      componentInstance.componentDidMount && componentInstance.componentDidMount();
+    });
+    return renderedMarkUp;
+  }
 }
-
-/**
- * 判断是否进行深度比较 判断类型是否一样
- * @param {*} preRenderElement 先前的元素
- * @param {*} nextRenderElement 下一个元素
- */
-function shouldDeepCompare(oldElement, newElement) {
-  if (oldElement !== null && newElement !== null) {
+//判断两个元素的类型一样不一样
+function shouldDeepCompare (oldElement, newElement) {
+  if (oldElement != null && newElement != null) {
     let oldType = typeof oldElement;
     let newType = typeof newElement;
-    // 文本数字
-    if (
-      (oldType === "string" || oldType === "number") &&
-      (newType === "string" || newType === "number")
-    ) {
+    if ((oldType === 'string' || oldType == 'number') && (newType === 'string' || newType == 'number')) {
       return true;
     }
-    // 元素
     if (oldElement instanceof Element && newElement instanceof Element) {
-      return oldElement.type === newElement.type;
+      return oldElement.type == newElement.type;
     }
   }
   return false;
 }
-/**
- *
- * @param {*} element 字符串 number function class
- * @return 返回一个实例
- */
-function createReactUnit(element) {
-  // 先对字符串处理
-  if (typeof element === "string" || typeof element === "number") {
-    return new ReactTextUnit(element);
-  } else if (element instanceof Element && typeof element.type === "string") {
-    // createElement创建的元素
-    return new ReactNativeUnit(element);
+function createUnit (element) {
+  if (typeof element === 'string' || typeof element === 'number') {
+    return new TextUnit(element);
   }
-  // element.type function
-  else if (element instanceof Element && typeof element.type === "function") {
-    // class对相应的情况
-    return new ReactCompositeUnit(element);
+  if (element instanceof Element && typeof element.type === 'string') {
+    return new NativeUnit(element);
+  }
+  if (element instanceof Element && typeof element.type === 'function') {
+    return new CompositeUnit(element);
   }
 }
-export default createReactUnit;
+export default createUnit
+

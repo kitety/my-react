@@ -1,122 +1,34 @@
-// react render方法
-
-import React from "./react";
-
-function say() {
-  alert(1);
-}
-class SubCounter extends React.Component {
-  constructor(props) {
-    // 传给父类
-    super(props);
-    this.state = { number: 1, odd: true };
-  }
-  componentWillMount() {
-    console.log("child组件将挂载");
-  }
-  componentDidMount() {
-    console.log("child组件已经挂载");
-    // setInterval(() => {
-    //   this.setState({ number: this.state.number + 1 });
-    // }, 1000);
-    setTimeout(() => {
-      console.log("change");
-
-      this.setState({ odd: !this.state.odd });
-    }, 1000);
-  }
-  componentDidUpdate() {
-    console.log("componentDidUpdate");
-  }
-  handleClick = () => {
-    console.log("this.state.number", this.state.number);
-    this.setState({ number: this.state.number + 1 });
-  };
-  shouldComponentUpdate() {
-    return true;
-  }
-  render() {
-    console.log("child render", this.state.number);
-
-    if (this.state.odd) {
-      return React.createElement(
-        "ul",
-        { id: "old" },
-        React.createElement("li", { key: "A" }, "A"),
-        React.createElement("li", { key: "B" }, "B"),
-        React.createElement("li", { key: "C" }, "C"),
-        React.createElement("li", { key: "D" }, "D")
-      );
-    } else {
-      return React.createElement(
-        "ul",
-        { id: "new" },
-        React.createElement("li", { key: "A" }, "A1"),
-        React.createElement("li", { key: "C" }, "C1"),
-        React.createElement("li", { key: "B" }, "B1"),
-        React.createElement("li", { key: "E" }, "E1"),
-        React.createElement("li", { key: "F" }, "F")
-      );
-    }
-
-    // return (
-    //   <div
-    //     onClick={this.handleClick}
-    //     style={{
-    //       color: this.state.number % 2 === 0 ? "red" : "green",
-    //       fontSize: "80px",
-    //     }}
-    //   >
-    //     {this.state.number}
-    //   </div>
-    // );
-  }
-}
+import React from './react';
 
 class Counter extends React.Component {
   constructor(props) {
-    // 传给父类
     super(props);
-    this.state = { number: 1 };
+    this.state = { odd: true };
   }
-  // 先父亲 再儿子
-  componentWillMount() {
-    console.log("parent组件将挂载");
+  componentDidMount () {
+    setTimeout(() => {
+      this.setState({ odd: !this.state.odd });
+    }, 1000);
   }
-  componentDidMount() {
-    console.log("parent组件已经挂载");
-  }
-  render() {
-    console.log("parent render");
-    return React.createElement(SubCounter, { name: "计数器" });
+  render () {
+    if (this.state.odd) {
+      return React.createElement('ul', { id: 'oldCounter' },
+        React.createElement('li', { key: 'A' }, 'A'),
+        React.createElement('li', { key: 'B' }, 'B'),
+        React.createElement('li', { key: 'C' }, 'C'),
+        React.createElement('li', { key: 'D' }, 'D')
+      );
+    }
+    return React.createElement('ul', { id: 'newCounter' },
+      React.createElement('span', { key: 'A' }, 'A1'),
+      React.createElement('li', { key: 'C' }, 'C1'),
+      React.createElement('li', { key: 'B' }, 'B1'),
+      React.createElement('li', { key: 'E' }, 'E1'),
+      React.createElement('li', { key: 'F' }, 'F')
+    );
   }
 }
-let classEle = React.createElement(Counter, {
-  name: "hello",
-});
-console.log(classEle);
-
-let element = React.createElement(
-  "div",
-  null,
-  "hello ",
-  /*#__PURE__*/ React.createElement("button", { onClick: say }, "3423432")
-);
-console.log("====================================");
-console.log(element);
-console.log("====================================");
-//  (
-//   <div>
-//     hello <span>3423432</span>
-//   </div>
-// ); // React.createElement("div", null, "hello ", /*#__PURE__*/React.createElement("span", null, "3423432"));
-// jsx语法 转换为虚拟Dom 对象  类  函数
-React.render(classEle, document.getElementById("root"));
-/**
- *
- *
- * <Counter name="hello" />
-React.createElement(Counter, {
-  name: "hello"
-});
- */
+//<Counter name="计数器">
+let element = React.createElement(Counter, { name: '计数器' });
+//{type:Counter,props:{name:'计数器'}}
+React.render(element, document.getElementById('root'));
